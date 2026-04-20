@@ -1,71 +1,53 @@
 import { homedir } from 'os';
 import { join } from 'path';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { createInterface } from 'readline/promises';
 import chalk from 'chalk';
+import { prompt } from './prompt.js';
+
+export interface GrantTemplate {
+  inviteMessage: string;
+  purpose: string;
+  instructions: string;
+  lifetimeDays: number;
+  dollarsPerHour: number;
+}
 
 export interface Config {
   airtableToken: string;
   slackToken: string;
+  hcbToken: string;
+  hcbOrganizationId: string;
+  grantTemplates: Record<string, GrantTemplate>;
 }
 
-const CONFIG_PATH = join(homedir(), '.youswish.json');
+export const CONFIG_PATH = join(homedir(), '.youswish.json');
 
-async function prompt(question: string, obscure = false): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-
-  if (obscure) {
-    const { emitKeypressEvents } = await import('readline');
-    emitKeypressEvents(process.stdin);
-    if (process.stdin.isTTY) process.stdin.setRawMode(true);
-
-    return new Promise(resolve => {
-      process.stdout.write(question);
-      let value = '';
-      process.stdin.on('keypress', function handler(_, key) {
-        if (key.name === 'return' || key.name === 'enter') {
-          process.stdin.setRawMode(false);
-          process.stdin.removeListener('keypress', handler);
-          process.stdout.write('\n');
-          rl.close();
-          resolve(value);
-        } else if (key.name === 'backspace') {
-          value = value.slice(0, -1);
-        } else if (!key.ctrl && key.sequence) {
-          value += key.sequence;
-        }
-      });
-    });
+export function readRawConfig(): Record<string, unknown> {
+  if (!existsSync(CONFIG_PATH)) return {};
+  try {
+    return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+  } catch {
+    console.warn(chalk.yellow(`Warning: ${CONFIG_PATH} contains invalid JSON — starting fresh.`));
+    return {};
   }
-
-  const answer = await rl.question(question);
-  rl.close();
-  return answer.trim();
 }
 
-function saveConfig(patch: Partial<Record<string, unknown>>): void {
-  let existing: Record<string, unknown> = {};
-  if (existsSync(CONFIG_PATH)) {
-    try {
-      existing = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-    } catch {
-      // overwrite malformed file
-    }
-  }
+export function saveConfig(patch: Record<string, unknown>): void {
+  const existing = readRawConfig();
   writeFileSync(CONFIG_PATH, JSON.stringify({ ...existing, ...patch }, null, 2) + '\n', 'utf-8');
 }
 
 async function ensureString(
   raw: Record<string, unknown>,
   key: string,
-  promptText: string,
+  question: string,
   hint?: string,
   obscure = false
 ): Promise<string> {
   if (typeof raw[key] === 'string' && raw[key]) return raw[key] as string;
 
-  if (hint) console.log(hint);
-  const value = await prompt(chalk.bold(promptText), obscure);
+  if (hint) process.stdout.write(hint);
+  const value = await prompt(chalk.bold(question), obscure);
   if (!value) {
     console.error(chalk.red(`${key} is required.`));
     process.exit(1);
@@ -77,45 +59,46 @@ async function ensureString(
   return value;
 }
 
-export async function loadConfig(): Promise<Config> {
-  let raw: Record<string, unknown> = {};
-
-  if (existsSync(CONFIG_PATH)) {
-    try {
-      raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-    } catch {
-      console.warn(chalk.yellow(`Warning: ${CONFIG_PATH} contains invalid JSON — starting fresh.`));
-    }
-  }
-
+export async function loadConfig(): Promise<Pick<Config, 'airtableToken'>> {
+  const raw = readRawConfig();
   const airtableToken = await ensureString(
     raw, 'airtableToken', 'Airtable personal access token: ',
     `No Airtable token found in ${CONFIG_PATH}.\n` +
     `Create one at ${chalk.cyan('https://airtable.com/create/tokens')} with ` +
-    `${chalk.bold('data.records:read')} scope on the YSWS Projects base.\n`,
+    `${chalk.bold('data.records:read')} scope on the YSWS Projects base.\n\n`,
     true
   );
-
-  return { airtableToken, slackToken: raw.slackToken as string ?? '' };
+  return { airtableToken };
 }
 
-export async function loadSlackConfig(): Promise<Pick<Config, 'slackToken' | 'slackWorkspace'>> {
-  let raw: Record<string, unknown> = {};
-
-  if (existsSync(CONFIG_PATH)) {
-    try {
-      raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-    } catch {
-      console.warn(chalk.yellow(`Warning: ${CONFIG_PATH} contains invalid JSON — starting fresh.`));
-    }
-  }
-
+export async function loadSlackConfig(): Promise<Pick<Config, 'slackToken'> & { slackWorkspace: string }> {
+  const raw = readRawConfig();
   const slackToken = await ensureString(
     raw, 'slackToken', 'Slack bot/user token: ',
     `No Slack token found in ${CONFIG_PATH}.\n` +
-    `Create a Slack app or use an existing token with the ${chalk.bold('users:read.email')} scope.\n`,
+    `Create a Slack app or use an existing token with the ${chalk.bold('users:read.email')} scope.\n\n`,
     true
   );
-
   return { slackToken, slackWorkspace: 'hackclub.enterprise' };
+}
+
+export async function loadHcbConfig(): Promise<Pick<Config, 'hcbToken' | 'hcbOrganizationId'>> {
+  const raw = readRawConfig();
+  const hcbToken = await ensureString(
+    raw, 'hcbToken', 'HCB token (hcb_...): ',
+    `No HCB token found in ${CONFIG_PATH}.\n` +
+    `Create one at ${chalk.cyan('https://hcb.hackclub.com/api/v4/oauth/authorize')} ` +
+    `with the ${chalk.bold('card_grants:write')} scope.\n\n`,
+    true
+  );
+  const hcbOrganizationId = await ensureString(
+    raw, 'hcbOrganizationId', 'HCB organization ID or slug: ',
+    `No HCB organization configured in ${CONFIG_PATH}.\n\n`
+  );
+  return { hcbToken, hcbOrganizationId };
+}
+
+export function loadGrantTemplates(): Record<string, GrantTemplate> {
+  const raw = readRawConfig();
+  return (raw.grantTemplates as Record<string, GrantTemplate>) ?? {};
 }

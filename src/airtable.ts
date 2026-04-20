@@ -42,6 +42,50 @@ function buildFilterFormula(variants: string[]): string {
   return `OR(${conditions.join(',')})`;
 }
 
+// Fetches a single project by Airtable record ID (rec...) or YSWS internal ID.
+export async function fetchProjectById(token: string, identifier: string): Promise<ProjectRecord | null> {
+  const isRecordId = identifier.startsWith('rec');
+
+  if (isRecordId) {
+    const res = await fetch(
+      `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${encodeURIComponent(identifier)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Airtable API error ${res.status}: ${await res.text()}`);
+    const r = (await res.json()) as RawRecord;
+    return {
+      recordId: r.id,
+      id: r.fields['ID'] ?? '',
+      codeUrl: r.fields['Code URL'] ?? '',
+      playableUrl: r.fields['Playable URL'] ?? '',
+      overrideHoursSpent: r.fields['Override Hours Spent'] ?? null,
+    };
+  }
+
+  // Look up by YSWS internal ID field
+  const url = new URL(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}`);
+  for (const field of ['ID', 'Code URL', 'Playable URL', 'Override Hours Spent']) {
+    url.searchParams.append('fields[]', field);
+  }
+  url.searchParams.set('filterByFormula', `{ID} = "${identifier.replace(/"/g, '\\"')}"`);
+  url.searchParams.set('maxRecords', '1');
+
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Airtable API error ${res.status}: ${await res.text()}`);
+
+  const data = (await res.json()) as { records: RawRecord[] };
+  if (data.records.length === 0) return null;
+  const r = data.records[0];
+  return {
+    recordId: r.id,
+    id: r.fields['ID'] ?? '',
+    codeUrl: r.fields['Code URL'] ?? '',
+    playableUrl: r.fields['Playable URL'] ?? '',
+    overrideHoursSpent: r.fields['Override Hours Spent'] ?? null,
+  };
+}
+
 export async function searchProjects(token: string, variants: string[]): Promise<ProjectRecord[]> {
   const records: ProjectRecord[] = [];
   let offset: string | undefined;
