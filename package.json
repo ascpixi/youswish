@@ -7,7 +7,7 @@
     "youswish": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --target node18 --out-dir dist",
+    "build": "tsup src/index.ts --format esm --target node18 --out-dir dist --external readline",
     "dev": "tsx src/index.ts",
     "prepare": "npm run build"
   },

@@ -60,7 +60,7 @@ function printRecord(match: Match): void {
 }
 
 export async function existsCommand(queryUrl: string): Promise<void> {
-  const config = loadConfig();
+  const config = await loadConfig();
 
   const variants = getSearchVariants(queryUrl);
   if (variants.length === 0) {
