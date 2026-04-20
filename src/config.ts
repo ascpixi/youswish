@@ -7,7 +7,6 @@ import chalk from 'chalk';
 export interface Config {
   airtableToken: string;
   slackToken: string;
-  slackWorkspace: string;
 }
 
 const CONFIG_PATH = join(homedir(), '.youswish.json');
@@ -97,7 +96,7 @@ export async function loadConfig(): Promise<Config> {
     true
   );
 
-  return { airtableToken, slackToken: raw.slackToken as string ?? '', slackWorkspace: raw.slackWorkspace as string ?? '' };
+  return { airtableToken, slackToken: raw.slackToken as string ?? '' };
 }
 
 export async function loadSlackConfig(): Promise<Pick<Config, 'slackToken' | 'slackWorkspace'>> {
@@ -118,10 +117,5 @@ export async function loadSlackConfig(): Promise<Pick<Config, 'slackToken' | 'sl
     true
   );
 
-  const slackWorkspace = await ensureString(
-    raw, 'slackWorkspace', 'Slack workspace subdomain (e.g. hackclub): ',
-    `No Slack workspace configured in ${CONFIG_PATH}.\n`
-  );
-
-  return { slackToken, slackWorkspace };
+  return { slackToken, slackWorkspace: 'hackclub.enterprise' };
 }
