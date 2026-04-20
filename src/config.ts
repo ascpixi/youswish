@@ -6,6 +6,8 @@ import chalk from 'chalk';
 
 export interface Config {
   airtableToken: string;
+  slackToken: string;
+  slackWorkspace: string;
 }
 
 const CONFIG_PATH = join(homedir(), '.youswish.json');
@@ -14,7 +16,6 @@ async function prompt(question: string, obscure = false): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   if (obscure) {
-    // Suppress echoed characters for sensitive input
     const { emitKeypressEvents } = await import('readline');
     emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
@@ -43,7 +44,7 @@ async function prompt(question: string, obscure = false): Promise<string> {
   return answer.trim();
 }
 
-function saveConfig(config: Partial<Config>): void {
+function saveConfig(patch: Partial<Record<string, unknown>>): void {
   let existing: Record<string, unknown> = {};
   if (existsSync(CONFIG_PATH)) {
     try {
@@ -52,7 +53,29 @@ function saveConfig(config: Partial<Config>): void {
       // overwrite malformed file
     }
   }
-  writeFileSync(CONFIG_PATH, JSON.stringify({ ...existing, ...config }, null, 2) + '\n', 'utf-8');
+  writeFileSync(CONFIG_PATH, JSON.stringify({ ...existing, ...patch }, null, 2) + '\n', 'utf-8');
+}
+
+async function ensureString(
+  raw: Record<string, unknown>,
+  key: string,
+  promptText: string,
+  hint?: string,
+  obscure = false
+): Promise<string> {
+  if (typeof raw[key] === 'string' && raw[key]) return raw[key] as string;
+
+  if (hint) console.log(hint);
+  const value = await prompt(chalk.bold(promptText), obscure);
+  if (!value) {
+    console.error(chalk.red(`${key} is required.`));
+    process.exit(1);
+  }
+
+  raw[key] = value;
+  saveConfig({ [key]: value });
+  console.log(chalk.green(`Saved to ${CONFIG_PATH}\n`));
+  return value;
 }
 
 export async function loadConfig(): Promise<Config> {
@@ -66,21 +89,39 @@ export async function loadConfig(): Promise<Config> {
     }
   }
 
-  if (typeof raw.airtableToken !== 'string' || !raw.airtableToken) {
-    console.log(chalk.dim(`No Airtable token found in ${CONFIG_PATH}.`));
-    console.log(`Create a personal access token at ${chalk.cyan('https://airtable.com/create/tokens')} with`);
-    console.log(`${chalk.bold('data.records:read')} scope on the YSWS Projects base.\n`);
+  const airtableToken = await ensureString(
+    raw, 'airtableToken', 'Airtable personal access token: ',
+    `No Airtable token found in ${CONFIG_PATH}.\n` +
+    `Create one at ${chalk.cyan('https://airtable.com/create/tokens')} with ` +
+    `${chalk.bold('data.records:read')} scope on the YSWS Projects base.\n`,
+    true
+  );
 
-    const token = await prompt(chalk.bold('Airtable personal access token: '), true);
-    if (!token) {
-      console.error(chalk.red('Token is required.'));
-      process.exit(1);
+  return { airtableToken, slackToken: raw.slackToken as string ?? '', slackWorkspace: raw.slackWorkspace as string ?? '' };
+}
+
+export async function loadSlackConfig(): Promise<Pick<Config, 'slackToken' | 'slackWorkspace'>> {
+  let raw: Record<string, unknown> = {};
+
+  if (existsSync(CONFIG_PATH)) {
+    try {
+      raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+    } catch {
+      console.warn(chalk.yellow(`Warning: ${CONFIG_PATH} contains invalid JSON — starting fresh.`));
     }
-
-    raw.airtableToken = token;
-    saveConfig({ airtableToken: token });
-    console.log(chalk.green(`Saved to ${CONFIG_PATH}\n`));
   }
 
-  return { airtableToken: raw.airtableToken as string };
+  const slackToken = await ensureString(
+    raw, 'slackToken', 'Slack bot/user token: ',
+    `No Slack token found in ${CONFIG_PATH}.\n` +
+    `Create a Slack app or use an existing token with the ${chalk.bold('users:read.email')} scope.\n`,
+    true
+  );
+
+  const slackWorkspace = await ensureString(
+    raw, 'slackWorkspace', 'Slack workspace subdomain (e.g. hackclub): ',
+    `No Slack workspace configured in ${CONFIG_PATH}.\n`
+  );
+
+  return { slackToken, slackWorkspace };
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { program } from 'commander';
 import { existsCommand } from './commands/exists.js';
+import { slackCommand } from './commands/slack.js';
 
 program
   .name('youswish')
@@ -12,5 +13,11 @@ program
   .alias('e')
   .description('Check if one or more project URLs exist in the YSWS Projects DB (separate multiple URLs with spaces, commas, or semicolons)')
   .action((urls: string[]) => existsCommand(urls));
+
+program
+  .command('slack <emails...>')
+  .alias('s')
+  .description('Look up a Slack user by email address')
+  .action((emails: string[]) => slackCommand(emails));
 
 program.parse();
