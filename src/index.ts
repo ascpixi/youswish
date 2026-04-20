@@ -8,8 +8,8 @@ program
   .version('0.1.0');
 
 program
-  .command('exists <url>')
-  .description('Check if a project URL already exists in the YSWS Projects DB')
-  .action((url: string) => existsCommand(url));
+  .command('exists <urls...>')
+  .description('Check if one or more project URLs exist in the YSWS Projects DB (separate multiple URLs with spaces, commas, or semicolons)')
+  .action((urls: string[]) => existsCommand(urls));
 
 program.parse();

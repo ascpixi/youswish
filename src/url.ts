@@ -10,12 +10,14 @@ export function normalizeUrl(raw: string): string {
 }
 
 // Returns the normalized URL plus all ancestor paths, from most to least specific.
-// Stops at 2 parts (domain + 1 segment) to avoid domain-only searches.
+// Always includes the full normalized URL. Parent path truncation stops at
+// 2 parts (domain + 1 segment) to avoid overly broad bare-domain searches.
 export function getSearchVariants(raw: string): string[] {
   const normalized = normalizeUrl(raw);
+  if (!normalized) return [];
   const parts = normalized.split('/');
-  const variants: string[] = [];
-  for (let i = parts.length; i >= 2; i--) {
+  const variants: string[] = [normalized];
+  for (let i = parts.length - 1; i >= 2; i--) {
     variants.push(parts.slice(0, i).join('/'));
   }
   return variants;

@@ -9,6 +9,13 @@ interface Match {
   matchedField: 'code' | 'playable' | 'both';
 }
 
+function parseUrls(args: string[]): string[] {
+  return args
+    .flatMap(a => a.split(/[,;]+/))
+    .map(u => u.trim())
+    .filter(Boolean);
+}
+
 function findMatches(queryUrl: string, records: ProjectRecord[]): Match[] {
   const results: Match[] = [];
 
@@ -18,7 +25,6 @@ function findMatches(queryUrl: string, records: ProjectRecord[]): Match[] {
 
     if (!codeKind && !playableKind) continue;
 
-    // Pick the best kind: exact > ancestor > descendant
     const kindPriority: MatchKind[] = ['exact', 'ancestor', 'descendant'];
     const kinds = [codeKind, playableKind].filter(Boolean) as MatchKind[];
     const kind = kindPriority.find(k => kinds.includes(k)) ?? kinds[0];
@@ -51,7 +57,7 @@ function printRecord(match: Match): void {
     matchedField === 'code' ? chalk.cyan('Code URL') :
     chalk.cyan('Playable URL');
 
-  console.log(`\n${label} ${kindNote} — matched on ${fieldLabel}`);
+  console.log(`\n  ${label} ${kindNote} — matched on ${fieldLabel}`);
   console.log(`  ${chalk.bold('ID:')}              ${record.id || chalk.dim('(none)')}`);
   console.log(`  ${chalk.bold('Airtable:')}        ${chalk.blue(AIRTABLE_RECORD_URL(record.recordId))}`);
   console.log(`  ${chalk.bold('Code URL:')}        ${record.codeUrl || chalk.dim('(none)')}`);
@@ -59,31 +65,11 @@ function printRecord(match: Match): void {
   console.log(`  ${chalk.bold('Override Hours:')}  ${record.overrideHoursSpent ?? chalk.dim('(none)')}`);
 }
 
-export async function existsCommand(queryUrl: string): Promise<void> {
-  const config = await loadConfig();
-
-  const variants = getSearchVariants(queryUrl);
-  if (variants.length === 0) {
-    console.error(chalk.red('Could not parse a searchable URL from the input.'));
-    process.exit(1);
-  }
-
-  process.stdout.write(chalk.dim('Searching Airtable...'));
-  let records: ProjectRecord[];
-  try {
-    records = await searchProjects(config.airtableToken, variants);
-  } catch (err) {
-    process.stdout.write('\n');
-    console.error(chalk.red(`Error: ${err instanceof Error ? err.message : String(err)}`));
-    process.exit(1);
-  }
-  process.stdout.write(chalk.dim(` done.\n`));
-
+function reportUrl(queryUrl: string, records: ProjectRecord[]): void {
   const matches = findMatches(queryUrl, records);
 
   if (matches.length === 0) {
-    console.log(chalk.green(`\nNo matches found for: ${queryUrl}`));
-    console.log(chalk.dim('This project does not appear to exist in the YSWS database.'));
+    console.log(`${chalk.green('✓')} ${chalk.bold(queryUrl)} — ${chalk.green('not found')}`);
     return;
   }
 
@@ -91,13 +77,46 @@ export async function existsCommand(queryUrl: string): Promise<void> {
   const pathCount = matches.length - exactCount;
 
   console.log(
-    `\nFound ${chalk.bold(String(matches.length))} match${matches.length !== 1 ? 'es' : ''} for: ${chalk.bold(queryUrl)}` +
+    `${chalk.red('✗')} ${chalk.bold(queryUrl)} — ` +
+    `${chalk.bold(String(matches.length))} match${matches.length !== 1 ? 'es' : ''}` +
     (exactCount > 0 ? chalk.red(` (${exactCount} exact)`) : '') +
     (pathCount > 0 ? chalk.yellow(` (${pathCount} path)`) : '')
   );
 
   for (const match of matches) {
     printRecord(match);
+  }
+}
+
+export async function existsCommand(args: string[]): Promise<void> {
+  const urls = parseUrls(args);
+  if (urls.length === 0) {
+    console.error(chalk.red('No URLs provided.'));
+    process.exit(1);
+  }
+
+  const config = await loadConfig();
+
+  const allVariants = [...new Set(urls.flatMap(u => getSearchVariants(u)))];
+  const invalidUrls = urls.filter(u => getSearchVariants(u).length === 0);
+  if (invalidUrls.length > 0) {
+    console.error(chalk.red(`Could not parse searchable URLs: ${invalidUrls.join(', ')}`));
+    process.exit(1);
+  }
+
+  process.stdout.write(chalk.dim(`Searching Airtable for ${urls.length} URL${urls.length !== 1 ? 's' : ''}...`));
+  let records: ProjectRecord[];
+  try {
+    records = await searchProjects(config.airtableToken, allVariants);
+  } catch (err) {
+    process.stdout.write('\n');
+    console.error(chalk.red(`Error: ${err instanceof Error ? err.message : String(err)}`));
+    process.exit(1);
+  }
+  process.stdout.write(chalk.dim(` done.\n\n`));
+
+  for (const url of urls) {
+    reportUrl(url, records);
   }
 
   console.log('');
