@@ -37,6 +37,12 @@ export function saveConfig(patch: Record<string, unknown>): void {
   writeFileSync(CONFIG_PATH, JSON.stringify({ ...existing, ...patch }, null, 2) + '\n', 'utf-8');
 }
 
+export function deleteConfigKeys(...keys: string[]): void {
+  const existing = readRawConfig();
+  for (const k of keys) delete existing[k];
+  writeFileSync(CONFIG_PATH, JSON.stringify(existing, null, 2) + '\n', 'utf-8');
+}
+
 async function ensureString(
   raw: Record<string, unknown>,
   key: string,

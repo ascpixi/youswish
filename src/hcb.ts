@@ -1,4 +1,36 @@
-const HCB_BASE = 'https://hcb.hackclub.com/api/v4';
+export const HCB_BASE = 'https://hcb.hackclub.com/api/v4';
+export const HCB_WEB = 'https://hcb.hackclub.com';
+
+export interface HcbUser {
+  id: string;
+  name: string;
+  email: string;
+  admin: boolean;
+}
+
+export interface HcbOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  balances?: { balance_cents: number };
+}
+
+export async function getCurrentUser(token: string): Promise<HcbUser> {
+  const res = await fetch(`${HCB_BASE}/user`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) throw new Error('Invalid or expired token.');
+  if (!res.ok) throw new Error(`HCB API error ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<HcbUser>;
+}
+
+export async function getOrganization(token: string, orgId: string): Promise<HcbOrganization> {
+  const res = await fetch(`${HCB_BASE}/organizations/${encodeURIComponent(orgId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HCB API error ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<HcbOrganization>;
+}
 
 export interface CardGrantOptions {
   amountCents: number;

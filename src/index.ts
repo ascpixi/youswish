@@ -4,6 +4,9 @@ import { existsCommand } from './commands/exists.js';
 import { slackCommand } from './commands/slack.js';
 import { grantTemplateCommand } from './commands/grant/template.js';
 import { grantNewCommand } from './commands/grant/new.js';
+import { hcbStatusCommand } from './commands/hcb/status.js';
+import { hcbLoginCommand } from './commands/hcb/login.js';
+import { hcbLogoutCommand } from './commands/hcb/logout.js';
 
 program
   .name('youswish')
@@ -42,5 +45,25 @@ grant
   .action((target: string, opts: { amount?: string; template?: string }) =>
     grantNewCommand(target, opts)
   );
+
+const hcb = program
+  .command('hcb')
+  .alias('h')
+  .description('Manage HCB authentication and configuration');
+
+hcb
+  .command('status')
+  .description('Show current HCB authentication status and configured organization')
+  .action(() => hcbStatusCommand());
+
+hcb
+  .command('login')
+  .description('Authenticate with HCB and configure an organization')
+  .action(() => hcbLoginCommand());
+
+hcb
+  .command('logout')
+  .description('Remove HCB credentials from config')
+  .action(() => hcbLogoutCommand());
 
 program.parse();
