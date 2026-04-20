@@ -11,7 +11,7 @@ interface Match {
 
 function parseUrls(args: string[]): string[] {
   return args
-    .flatMap(a => a.split(/[,;]+/))
+    .flatMap(a => a.split(/[,;\t]+/))
     .map(u => u.trim())
     .filter(Boolean);
 }
