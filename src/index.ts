@@ -9,6 +9,7 @@ program
 
 program
   .command('exists <urls...>')
+  .alias('e')
   .description('Check if one or more project URLs exist in the YSWS Projects DB (separate multiple URLs with spaces, commas, or semicolons)')
   .action((urls: string[]) => existsCommand(urls));
 
