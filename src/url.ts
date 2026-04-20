@@ -4,31 +4,34 @@ export function normalizeUrl(raw: string): string {
     .toLowerCase()
     .replace(/^https?:\/\//, '')
     .replace(/^www\./, '')
+    .split('?')[0]
+    .split('#')[0]
     .replace(/\/+$/, '');
 }
 
-// Levenshtein distance
-function levenshtein(a: string, b: string): number {
-  const m = a.length, n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-  );
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1][j - 1]
-        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-    }
+// Returns the normalized URL plus all ancestor paths, from most to least specific.
+// Stops at 2 parts (domain + 1 segment) to avoid domain-only searches.
+export function getSearchVariants(raw: string): string[] {
+  const normalized = normalizeUrl(raw);
+  const parts = normalized.split('/');
+  const variants: string[] = [];
+  for (let i = parts.length; i >= 2; i--) {
+    variants.push(parts.slice(0, i).join('/'));
   }
-  return dp[m][n];
+  return variants;
 }
 
-export function urlSimilarity(a: string, b: string): number {
-  if (!a || !b) return 0;
-  const na = normalizeUrl(a);
-  const nb = normalizeUrl(b);
-  if (na === nb) return 1;
-  const maxLen = Math.max(na.length, nb.length);
-  if (maxLen === 0) return 1;
-  return 1 - levenshtein(na, nb) / maxLen;
+export type MatchKind = 'exact' | 'ancestor' | 'descendant';
+
+// Returns the kind of path relationship between query and a stored URL, or null if unrelated.
+// "ancestor" = stored URL is a child path of query (query is the parent project)
+// "descendant" = stored URL is a parent path of query (stored is the parent project)
+export function pathMatchKind(query: string, stored: string): MatchKind | null {
+  if (!stored) return null;
+  const nq = normalizeUrl(query);
+  const ns = normalizeUrl(stored);
+  if (nq === ns) return 'exact';
+  if (ns.startsWith(nq + '/')) return 'ancestor';
+  if (nq.startsWith(ns + '/')) return 'descendant';
+  return null;
 }

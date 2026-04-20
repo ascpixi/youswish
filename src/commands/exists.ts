@@ -1,52 +1,57 @@
 import chalk from 'chalk';
 import { loadConfig } from '../config.js';
-import { fetchAllProjects, AIRTABLE_RECORD_URL, type ProjectRecord } from '../airtable.js';
-import { urlSimilarity } from '../url.js';
-
-const EXACT_THRESHOLD = 0.95;
-const FUZZY_THRESHOLD = 0.70;
+import { searchProjects, AIRTABLE_RECORD_URL, type ProjectRecord } from '../airtable.js';
+import { getSearchVariants, pathMatchKind, type MatchKind } from '../url.js';
 
 interface Match {
   record: ProjectRecord;
-  score: number;
+  kind: MatchKind;
   matchedField: 'code' | 'playable' | 'both';
 }
 
-function findMatches(query: string, records: ProjectRecord[]): Match[] {
+function findMatches(queryUrl: string, records: ProjectRecord[]): Match[] {
   const results: Match[] = [];
 
   for (const record of records) {
-    const codeScore = urlSimilarity(query, record.codeUrl);
-    const playableScore = urlSimilarity(query, record.playableUrl);
-    const score = Math.max(codeScore, playableScore);
+    const codeKind = pathMatchKind(queryUrl, record.codeUrl);
+    const playableKind = pathMatchKind(queryUrl, record.playableUrl);
 
-    if (score < FUZZY_THRESHOLD) continue;
+    if (!codeKind && !playableKind) continue;
+
+    // Pick the best kind: exact > ancestor > descendant
+    const kindPriority: MatchKind[] = ['exact', 'ancestor', 'descendant'];
+    const kinds = [codeKind, playableKind].filter(Boolean) as MatchKind[];
+    const kind = kindPriority.find(k => kinds.includes(k)) ?? kinds[0];
 
     const matchedField =
-      codeScore >= FUZZY_THRESHOLD && playableScore >= FUZZY_THRESHOLD
-        ? 'both'
-        : codeScore >= playableScore
-        ? 'code'
-        : 'playable';
+      codeKind && playableKind ? 'both' : codeKind ? 'code' : 'playable';
 
-    results.push({ record, score, matchedField });
+    results.push({ record, kind, matchedField });
   }
 
-  return results.sort((a, b) => b.score - a.score);
+  const priority: Record<MatchKind, number> = { exact: 0, ancestor: 1, descendant: 2 };
+  return results.sort((a, b) => priority[a.kind] - priority[b.kind]);
 }
 
 function printRecord(match: Match): void {
-  const { record, score, matchedField } = match;
-  const isExact = score >= EXACT_THRESHOLD;
-  const label = isExact ? chalk.red.bold('EXACT MATCH') : chalk.yellow.bold('FUZZY MATCH');
-  const pct = chalk.dim(`(${(score * 100).toFixed(0)}% similarity)`);
-  const fieldLabel = matchedField === 'both'
-    ? chalk.cyan('Code URL & Playable URL')
-    : matchedField === 'code'
-    ? chalk.cyan('Code URL')
-    : chalk.cyan('Playable URL');
+  const { record, kind, matchedField } = match;
 
-  console.log(`\n${label} ${pct} — matched on ${fieldLabel}`);
+  const label =
+    kind === 'exact' ? chalk.red.bold('EXACT MATCH') :
+    kind === 'ancestor' ? chalk.yellow.bold('CHILD PATH MATCH') :
+    chalk.yellow.bold('PARENT PATH MATCH');
+
+  const kindNote =
+    kind === 'ancestor' ? chalk.dim('(stored URL is a sub-path of your query)') :
+    kind === 'descendant' ? chalk.dim('(stored URL is a parent path of your query)') :
+    '';
+
+  const fieldLabel =
+    matchedField === 'both' ? chalk.cyan('Code URL & Playable URL') :
+    matchedField === 'code' ? chalk.cyan('Code URL') :
+    chalk.cyan('Playable URL');
+
+  console.log(`\n${label} ${kindNote} — matched on ${fieldLabel}`);
   console.log(`  ${chalk.bold('ID:')}              ${record.id || chalk.dim('(none)')}`);
   console.log(`  ${chalk.bold('Airtable:')}        ${chalk.blue(AIRTABLE_RECORD_URL(record.recordId))}`);
   console.log(`  ${chalk.bold('Code URL:')}        ${record.codeUrl || chalk.dim('(none)')}`);
@@ -57,16 +62,22 @@ function printRecord(match: Match): void {
 export async function existsCommand(queryUrl: string): Promise<void> {
   const config = loadConfig();
 
-  process.stdout.write(chalk.dim(`Fetching projects from Airtable...`));
+  const variants = getSearchVariants(queryUrl);
+  if (variants.length === 0) {
+    console.error(chalk.red('Could not parse a searchable URL from the input.'));
+    process.exit(1);
+  }
+
+  process.stdout.write(chalk.dim('Searching Airtable...'));
   let records: ProjectRecord[];
   try {
-    records = await fetchAllProjects(config.airtableToken);
+    records = await searchProjects(config.airtableToken, variants);
   } catch (err) {
     process.stdout.write('\n');
     console.error(chalk.red(`Error: ${err instanceof Error ? err.message : String(err)}`));
     process.exit(1);
   }
-  process.stdout.write(chalk.dim(` ${records.length} records loaded.\n`));
+  process.stdout.write(chalk.dim(` done.\n`));
 
   const matches = findMatches(queryUrl, records);
 
@@ -76,13 +87,13 @@ export async function existsCommand(queryUrl: string): Promise<void> {
     return;
   }
 
-  const exactCount = matches.filter(m => m.score >= EXACT_THRESHOLD).length;
-  const fuzzyCount = matches.length - exactCount;
+  const exactCount = matches.filter(m => m.kind === 'exact').length;
+  const pathCount = matches.length - exactCount;
 
   console.log(
     `\nFound ${chalk.bold(String(matches.length))} match${matches.length !== 1 ? 'es' : ''} for: ${chalk.bold(queryUrl)}` +
     (exactCount > 0 ? chalk.red(` (${exactCount} exact)`) : '') +
-    (fuzzyCount > 0 ? chalk.yellow(` (${fuzzyCount} fuzzy)`) : '')
+    (pathCount > 0 ? chalk.yellow(` (${pathCount} path)`) : '')
   );
 
   for (const match of matches) {
